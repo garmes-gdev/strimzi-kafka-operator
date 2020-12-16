@@ -9,6 +9,7 @@ import io.fabric8.kubernetes.api.model.Doneable;
 import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.LabelSelectorBuilder;
 import io.fabric8.kubernetes.api.model.LocalObjectReference;
+import io.fabric8.kubernetes.api.model.Secret;
 import io.fabric8.kubernetes.client.CustomResource;
 import io.fabric8.kubernetes.client.CustomResourceList;
 import io.fabric8.kubernetes.client.KubernetesClient;
@@ -64,9 +65,11 @@ import io.strimzi.operator.common.operator.resource.ClusterRoleBindingOperator;
 import io.strimzi.operator.common.operator.resource.ConfigMapOperator;
 import io.strimzi.operator.common.operator.resource.CrdOperator;
 import io.strimzi.operator.common.operator.resource.PodDisruptionBudgetOperator;
+import io.strimzi.operator.common.operator.resource.SecretOperator;
 import io.strimzi.operator.common.operator.resource.ServiceAccountOperator;
 import io.strimzi.operator.common.operator.resource.ServiceOperator;
 import io.strimzi.operator.common.operator.resource.StatusUtils;
+import io.strimzi.operator.common.operator.resource.ReconcileResult;
 import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -104,6 +107,7 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
     protected final ConfigMapOperator configMapOperations;
     protected final ClusterRoleBindingOperator clusterRoleBindingOperations;
     protected final ServiceOperator serviceOperations;
+    protected final SecretOperator secretOperations;
     protected final PodDisruptionBudgetOperator podDisruptionBudgetOperator;
     protected final List<LocalObjectReference> imagePullSecrets;
     protected final long operationTimeoutMs;
@@ -130,6 +134,7 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
         this.configMapOperations = supplier.configMapOperations;
         this.clusterRoleBindingOperations = supplier.clusterRoleBindingOperator;
         this.serviceOperations = supplier.serviceOperations;
+        this.secretOperations = supplier.secretOperations;
         this.serviceAccountOperations = supplier.serviceAccountOperations;
         this.podDisruptionBudgetOperator = supplier.podDisruptionBudgetOperator;
         this.imagePullPolicy = config.getImagePullPolicy();
@@ -708,5 +713,19 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
             }
         }
         return Future.succeededFuture(null);
+    }
+
+
+    Future<ReconcileResult<Secret>> kafkaConnectJmxSecret(String namespace, String name, KafkaConnectCluster connectCluster) {
+        if (connectCluster.isJmxAuthenticated()) {
+            Future<Secret> secretFuture = secretOperations.getAsync(namespace, KafkaConnectCluster.jmxSecretName(name));
+            return secretFuture.compose(res -> {
+                if (res == null) {
+                    return secretOperations.reconcile(namespace, KafkaConnectCluster.jmxSecretName(name), connectCluster.generateJmxSecret());
+                }
+                return Future.succeededFuture(ReconcileResult.noop(res));
+            });
+        }
+        return secretOperations.reconcile(namespace, KafkaConnectCluster.jmxSecretName(name), null);
     }
 }
